@@ -19,7 +19,7 @@ def validate_repository(repo):
         raise ValueError("URL репозитория или путь к файлу должен быть непустой строкой")
     repo = repo.strip()
     if len(repo) == 0:
-        raise ValueError("URL репозитория или путь к файлу не может быть пустым")
+        raise ValueError("URL репозитория или путь к файлу должен быть непустой строкой")
 
     # Проверяем, является ли это URL
     if repo.startswith(('http://', 'https://')):
