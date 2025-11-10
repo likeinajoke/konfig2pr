@@ -1,7 +1,13 @@
 import argparse
 import sys
 import os
+import tempfile
+import subprocess
 from pathlib import Path
+import re
+import requests
+import tarfile
+from urllib.parse import urljoin, urlparse
 
 
 def validate_package_name(name):
@@ -70,6 +76,126 @@ def validate_depth(depth):
     return depth
 
 
+def extract_dependencies_from_cargo_toml(cargo_toml_path):
+    """Извлекает прямые зависимости из Cargo.toml"""
+    dependencies = []
+
+    with open(cargo_toml_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    # Регулярное выражение для поиска секций зависимостей
+    sections = re.findall(r'\[([^\]]+)\](.*?)(?=\n\[|$)', content, re.DOTALL)
+
+    for section_name, section_content in sections:
+        section_name = section_name.strip()
+        if section_name == 'dependencies' or section_name.startswith('dependencies.'):
+            # Ищем зависимости в формате:
+            # name = "version"
+            # name = { version = "x.y.z", optional = true, ... }
+            dep_matches = re.findall(r'^([a-zA-Z0-9_-]+)\s*=\s*(.*)$', section_content, re.MULTILINE)
+
+            for dep_name, dep_value in dep_matches:
+                dep_name = dep_name.strip()
+
+                # Убираем комментарии из значения
+                dep_value = dep_value.split('#')[0].strip()
+
+                # Простая строка (например, "1.0.0")
+                if dep_value.startswith('"') and dep_value.endswith('"'):
+                    version = dep_value[1:-1]
+                    dependencies.append({'name': dep_name, 'version': version})
+                # Таблица (например, { version = "1.0.0", ... })
+                elif dep_value.startswith('{') and dep_value.endswith('}'):
+                    # Ищем version внутри таблицы
+                    version_match = re.search(r'version\s*=\s*"([^"]+)"', dep_value)
+                    if version_match:
+                        version = version_match.group(1)
+                        dependencies.append({'name': dep_name, 'version': version})
+                    else:
+                        # Если version не указан, добавляем без версии
+                        dependencies.append({'name': dep_name, 'version': 'unknown'})
+                # Просто имя (редко, но может быть)
+                else:
+                    dependencies.append({'name': dep_name, 'version': 'unknown'})
+
+    return dependencies
+
+
+def download_crate_source(crate_name, version=None):
+    """Скачивает исходный код пакета с crates.io"""
+    # Если версия не указана, получаем последнюю
+    if not version:
+        # Получаем информацию о пакете
+        metadata_url = f"https://crates.io/api/v1/crates/{crate_name}"
+        response = requests.get(metadata_url)
+        if response.status_code != 200:
+            raise RuntimeError(f"Не удалось получить информацию о пакете {crate_name}: {response.status_code}")
+
+        data = response.json()
+        version = data['crate']['max_version']
+
+    # Формируем URL для скачивания
+    download_url = f"https://crates.io/api/v1/crates/{crate_name}/{version}/download"
+
+    # Скачиваем архив
+    response = requests.get(download_url)
+    if response.status_code != 200:
+        raise RuntimeError(f"Не удалось скачать пакет {crate_name} версии {version}: {response.status_code}")
+
+    return response.content
+
+
+def extract_cargo_toml_from_archive(archive_content, temp_dir):
+    """Извлекает Cargo.toml из архива и возвращает путь к нему"""
+    # Создаём временный файл для архива
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.crate') as archive_file:
+        archive_file.write(archive_content)
+        archive_path = archive_file.name
+
+    try:
+        # Распаковываем .crate архив (это .tar.gz)
+        with tarfile.open(archive_path, 'r:gz') as tar:
+            if sys.version_info >= (3, 12):
+                # В Python 3.12+ filter по умолчанию 'data', но мы явно указываем для безопасности
+                tar.extractall(path=temp_dir, filter='data')
+            else:
+                # В более старых версиях filter не поддерживается, просто извлекаем
+                tar.extractall(path=temp_dir)
+
+                # Ищем директорию пакета (обычно это crate-name-version)
+            extracted_dirs = os.listdir(temp_dir)
+            if not extracted_dirs:
+                raise FileNotFoundError(f"Архив пустой")
+
+        # Ищем Cargo.toml в распакованной директории
+        crate_dir = os.path.join(temp_dir, os.listdir(temp_dir)[0])  # первая поддиректория
+        cargo_toml_path = os.path.join(crate_dir, 'Cargo.toml')
+
+        if not os.path.exists(cargo_toml_path):
+            raise FileNotFoundError(f"Файл Cargo.toml не найден в архиве пакета")
+
+        return cargo_toml_path
+
+    finally:
+        # Удаляем временный файл архива
+        os.unlink(archive_path)
+
+
+def get_direct_dependencies_from_crates_io(crate_name, repository_url):
+    """Извлекает прямые зависимости указанного пакета с crates.io"""
+    # repository_url игнорируется, так как мы используем официальный API
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Скачиваем архив с crates.io
+        archive_content = download_crate_source(crate_name)
+
+        # Извлекаем Cargo.toml из архива
+        cargo_toml_path = extract_cargo_toml_from_archive(archive_content, temp_dir)
+
+        # Извлекаем зависимости
+        dependencies = extract_dependencies_from_cargo_toml(cargo_toml_path)
+
+        return dependencies
+
 def parse_arguments():
     parser = argparse.ArgumentParser(
         description='Инструмент визуализации графа зависимостей для менеджера пакетов'
@@ -123,8 +249,28 @@ def main():
         print(f"mode = {mode}")
         print(f"depth = {depth}")
 
+        # Получаем прямые зависимости с crates.io
+        dependencies = get_direct_dependencies_from_crates_io(package_name, repository)
+
+        # Выводим прямые зависимости
+        print("Прямые зависимости:")
+        if dependencies:
+            for dep in dependencies:
+                print(f"- {dep['name']}: {dep['version']}")
+        else:
+            print("Зависимости не найдены.")
+
     except ValueError as e:
         print(f"Ошибка валидации: {e}", file=sys.stderr)
+        sys.exit(1)
+    except FileNotFoundError as e:
+        print(f"Ошибка: {e}", file=sys.stderr)
+        sys.exit(1)
+    except RuntimeError as e:
+        print(f"Ошибка выполнения: {e}", file=sys.stderr)
+        sys.exit(1)
+    except requests.RequestException as e:
+        print(f"Ошибка сети: {e}", file=sys.stderr)
         sys.exit(1)
     except SystemExit:
         # argparse вызывает sys.exit при неправильных аргументах

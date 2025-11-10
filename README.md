@@ -16,3 +16,13 @@
 
 Для терминала: 
 ```python main.py --package my-package --repository https://github.com/user/repo.git --mode production --depth 3```
+
+# 2 этап
+
+Были реализованы функции для извлечения информации о прямых зависимостях заданного пользователем пакета, используя url-адрес репозитория, с помощью предварительного скачивания архива нужного файла.
+Использует официальный репозиторий crates.io для получения информации о пакетах.
+Основные функции:
+1. download_crate_source - скачивает исходный код пакета с crates.io API, автоматически определяет последнюю версию, если не указана
+2. extract_cargo_toml_from_archive извлекает файл Cargo.toml из архива .crate, применяет фильтрацию для безопасности (совместимо с Python 3.14+)
+3. get_direct_dependencies_from_crates_io - основная функция сбора зависимостей
+4. extract_dependencies_from_cargo_toml - парсит файл Cargo.toml вручную
