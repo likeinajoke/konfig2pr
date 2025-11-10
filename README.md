@@ -26,3 +26,5 @@
 2. extract_cargo_toml_from_archive извлекает файл Cargo.toml из архива .crate, применяет фильтрацию для безопасности (совместимо с Python 3.14+)
 3. get_direct_dependencies_from_crates_io - основная функция сбора зависимостей
 4. extract_dependencies_from_cargo_toml - парсит файл Cargo.toml вручную
+Для терминала:
+```python main.py --package serde --repository https://crates.io```
