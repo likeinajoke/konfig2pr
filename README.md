@@ -13,3 +13,6 @@
 В главной функции реализован вывод всех параметров, настраиваемых пользователем.
 
 Реализован 21 тест с помощью пакета Pytest в отдельном файле test_main.py.
+
+Для терминала: 
+```python main.py --package my-package --repository https://github.com/user/repo.git --mode production --depth 3```
