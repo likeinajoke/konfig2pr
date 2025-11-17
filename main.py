@@ -92,7 +92,7 @@ def extract_dependencies_from_cargo_toml(cargo_toml_path):
             # Ищем зависимости в формате:
             # name = "version"
             # name = { version = "x.y.z", optional = true, ... }
-            dep_matches = re.findall(r'^([a-zA-Z0-9_-]+)\s*=\s*(.*)$', section_content, re.MULTILINE)
+            dep_matches = re.findall(r'^\s*([a-zA-Z0-9_-]+)\s*=\s*(.*)$', section_content, re.MULTILINE)
 
             for dep_name, dep_value in dep_matches:
                 dep_name = dep_name.strip()
@@ -182,19 +182,40 @@ def extract_cargo_toml_from_archive(archive_content, temp_dir):
 
 
 def get_direct_dependencies_from_crates_io(crate_name, repository_url):
-    """Извлекает прямые зависимости указанного пакета с crates.io"""
-    # repository_url игнорируется, так как мы используем официальный API
-    with tempfile.TemporaryDirectory() as temp_dir:
-        # Скачиваем архив с crates.io
-        archive_content = download_crate_source(crate_name, repository_url)
+    """Получает имена и параметры зависимостей через API crates.io"""
 
-        # Извлекаем Cargo.toml из архива
-        cargo_toml_path = extract_cargo_toml_from_archive(archive_content, temp_dir)
+    # Узнаём последнюю версию пакета
+    metadata_url = f"{repository_url}{crate_name}"
+    response = requests.get(metadata_url)
+    if response.status_code != 200:
+        raise RuntimeError("Не удалось получить данные пакета")
 
-        # Извлекаем зависимости
-        dependencies = extract_dependencies_from_cargo_toml(cargo_toml_path)
+    data = response.json()
+    version = data["crate"]["max_version"]
 
-        return dependencies
+    # Получаем список зависимостей
+    deps_url = f"{repository_url}{crate_name}/{version}/dependencies"
+    deps_resp = requests.get(deps_url)
+
+    if deps_resp.status_code != 200:
+        raise RuntimeError("Не удалось получить список зависимостей")
+
+    deps_data = deps_resp.json()
+
+    dependencies = []
+    for d in deps_data["dependencies"]:
+        dependencies.append({
+            "name": d["crate_id"],
+            "version": d["req"],
+            "optional": d["optional"],
+            "default_features": d.get("default_features", None),
+            "features": d.get("features", []),
+            "kind": d.get("kind", None)
+        })
+
+    return dependencies
+
+
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
@@ -253,10 +274,11 @@ def main():
         dependencies = get_direct_dependencies_from_crates_io(package_name, repository)
 
         # Выводим прямые зависимости
-        print("Прямые зависимости:")
+        print(f"Прямые зависимости: '{package_name}'")
+
         if dependencies:
             for dep in dependencies:
-                print(f"- {dep['name']}: {dep['version']}")
+                print(f"- {dep['name']}:")
         else:
             print("Зависимости не найдены.")
 
