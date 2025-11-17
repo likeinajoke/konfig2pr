@@ -121,12 +121,12 @@ def extract_dependencies_from_cargo_toml(cargo_toml_path):
     return dependencies
 
 
-def download_crate_source(crate_name, version=None):
+def download_crate_source(crate_name, repo, version=None):
     """Скачивает исходный код пакета с crates.io"""
     # Если версия не указана, получаем последнюю
     if not version:
         # Получаем информацию о пакете
-        metadata_url = f"https://crates.io/api/v1/crates/{crate_name}"
+        metadata_url = f"{repo}{crate_name}"
         response = requests.get(metadata_url)
         if response.status_code != 200:
             raise RuntimeError(f"Не удалось получить информацию о пакете {crate_name}: {response.status_code}")
@@ -135,7 +135,7 @@ def download_crate_source(crate_name, version=None):
         version = data['crate']['max_version']
 
     # Формируем URL для скачивания
-    download_url = f"https://crates.io/api/v1/crates/{crate_name}/{version}/download"
+    download_url = f"{repo}{crate_name}/{version}/download"
 
     # Скачиваем архив
     response = requests.get(download_url)
@@ -186,7 +186,7 @@ def get_direct_dependencies_from_crates_io(crate_name, repository_url):
     # repository_url игнорируется, так как мы используем официальный API
     with tempfile.TemporaryDirectory() as temp_dir:
         # Скачиваем архив с crates.io
-        archive_content = download_crate_source(crate_name)
+        archive_content = download_crate_source(crate_name, repository_url)
 
         # Извлекаем Cargo.toml из архива
         cargo_toml_path = extract_cargo_toml_from_archive(archive_content, temp_dir)

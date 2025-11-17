@@ -27,4 +27,4 @@
 3. get_direct_dependencies_from_crates_io - основная функция сбора зависимостей
 4. extract_dependencies_from_cargo_toml - парсит файл Cargo.toml вручную
 Для терминала:
-```python main.py --package serde --repository https://crates.io```
+``` python main.py --package tl --repository https://crates.io/api/v1/crates/```
