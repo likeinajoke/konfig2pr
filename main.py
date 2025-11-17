@@ -129,7 +129,7 @@ def download_crate_source(crate_name, repo, version=None):
         metadata_url = f"{repo}{crate_name}"
         response = requests.get(metadata_url)
         if response.status_code != 200:
-            raise RuntimeError(f"Не удалось получить информацию о пакете {crate_name}: {response.status_code}")
+            raise RuntimeError(f"Не удалось получить информацию о пакете {crate_name}: {response.status_code} или был неверно указан адрес репозитория")
 
         data = response.json()
         version = data['crate']['max_version']
